@@ -100,6 +100,184 @@ Suggested touch behavior:
 
 Make accidental drawing while transforming the canvas difficult.
 
+## Visual / GUI direction after first dogfood pass
+
+The first working build proved the editor useful, but the persistent app chrome takes too much of the viewport. The screenshot itself should dominate almost the entire screen.
+
+Preferred direction:
+
+### Canvas-first fullscreen editor
+
+Default editing state should show almost only:
+
+- the real screenshot;
+- the annotation layer;
+- at most one tiny persistent handle/pill/current-tool indicator.
+
+While editing, hide normal status/navigation chrome where practical. Branding, filename, dimensions, large buttons, and explanatory copy do not belong in the permanent editor view.
+
+When the user starts drawing, any visible tool chrome should disappear automatically and stay hidden until deliberately recalled.
+
+### Quick tools overlay
+
+A small temporary overlay/drawer should expose:
+
+- Brush;
+- Eraser;
+- Note;
+- Hand;
+- current color / compact preset colors;
+- brush size;
+- undo / redo;
+- Fit.
+
+The current large tool cards are visually pleasant but consume too much space when always visible. They can survive as a temporary drawer/panel rather than permanent UI.
+
+Possible access patterns worth testing:
+
+- a thin edge tab/handle;
+- tap empty canvas to show/hide controls;
+- bottom swipe-up tool drawer.
+
+Prefer one obvious mechanism over several clever gestures.
+
+### Secondary menu / settings sheet
+
+Move infrequent actions out of the main editor:
+
+- Open / replace screenshot;
+- Export;
+- Notes list;
+- rotate left/right;
+- project/image info;
+- Settings;
+- About.
+
+### Settings / About content
+
+Keep this operational and small:
+
+- app name: Dauba;
+- motto: Paint what you mean;
+- version name + build number;
+- default brush color;
+- default brush size;
+- remember last tool;
+- optional auto-hide controls;
+- optional keep-screen-awake while editing;
+- export packet summary;
+- optional show/hide note labels on canvas;
+- optional include JSON in export;
+- source/repository link later.
+
+Do not turn Settings into a theme/customization system.
+
+### Guiding principle
+
+Dauba should feel like a transparent markup surface over reality, not like a conventional editor wrapped around an image.
+
+Default state: screenshot.
+Temporary state: controls.
+Rare state: settings / export / project management.
+
+## Future repo-aware workflow
+
+This is deliberately a later step, but the first useful direction is clear enough to record now.
+
+The owner often works on several Codex-managed repositories. Dauba could know which project a screenshot belongs to and export packets using a repository-defined naming convention rather than arbitrary filenames.
+
+### Tiny per-repository manifest
+
+A repository may optionally contain a small committed manifest, for example:
+
+```text
+.dauba.json
+```
+
+Keep it human-readable and boring. Possible first shape:
+
+```json
+{
+  "schema": 1,
+  "project": "bokounapp",
+  "displayName": "BokounApp",
+  "packetPrefix": "bokoun",
+  "defaultBranch": "main",
+  "visualDir": "visual/dauba"
+}
+```
+
+Do not put secrets, credentials, paths to private account data, or machine-specific absolute paths in it.
+
+The exact schema is not fixed yet. Start only when a real repo-selection workflow is being built.
+
+### Why a repo manifest may help
+
+When Dauba chooses a repo/project, it could derive stable packet names such as:
+
+```text
+bokoun-board-2026-09-27-01.zip
+bokoun-settings-2026-09-27-02.zip
+```
+
+or a folder/packet identity such as:
+
+```text
+visual/dauba/bokoun-board-2026-09-27-01/
+```
+
+Codex CLI could keep the manifest updated when project naming or workflow conventions change. Dauba would only consume the small public project metadata it needs.
+
+Avoid inventing an elaborate taxonomy. Prefer short stable project IDs plus a free-form task/screen slug.
+
+### Possible Dauba -> Codex -> commit loop
+
+A useful future workflow may be:
+
+1. Select repo/project in Dauba.
+2. Annotate a real screenshot.
+3. Export a Dauba packet.
+4. Move/share the ZIP to the development machine or known repo inbox.
+5. Codex CLI reads:
+   - original screenshot;
+   - annotated screenshot;
+   - Markdown notes;
+   - JSON coordinates/metadata;
+   - repo `.dauba.json`.
+6. Codex makes the requested code changes.
+7. The Dauba packet is optionally retained alongside the commit as visual intent/evidence.
+
+Possible retention approaches, in increasing order of permanence:
+
+- keep packets outside Git and mention their local path in the Codex session;
+- extract only `screen.md` plus selected images into `visual/dauba/`;
+- commit the entire ZIP under `visual/dauba/`;
+- attach the ZIP to a GitHub issue/release/artifact instead of bloating normal Git history.
+
+Do not automatically commit ZIPs by default until real usage shows that this history is valuable. PNG-heavy packets can grow repositories quickly.
+
+A nice eventual commit message/body convention could mention the packet ID, for example:
+
+```text
+Tighten board post spacing
+
+Dauba: bokoun-board-2026-09-27-01
+```
+
+That gives human-readable traceability without making Dauba part of the application runtime.
+
+### Repo selection in Dauba
+
+If implemented, keep selection simple:
+
+- a remembered list of known projects;
+- display name + short ID;
+- optional repo URL;
+- no Git credentials inside Dauba;
+- no direct Git operations required for the first version.
+
+Dauba should not become a Git client. Codex/CLI remains responsible for reading repositories, editing code, testing, and committing.
+
 ## Possible later additions
 
 Only after real usage demonstrates a need:
