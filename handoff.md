@@ -29,7 +29,7 @@ Keep it aggressively simple:
 - eraser;
 - undo / redo;
 - two-finger pan and zoom;
-- optional free canvas rotation;
+- 90° clockwise / counterclockwise canvas rotation only (no free rotation in the first build);
 - anchored text comments;
 - export/share the result.
 
@@ -95,7 +95,7 @@ Suggested touch behavior:
 
 - one finger: draw with current tool;
 - two fingers: pan / zoom;
-- two-finger twist: rotate if rotation is enabled;
+- explicit buttons: rotate the working canvas 90° clockwise / counterclockwise;
 - comment tool: tap image -> place anchor -> enter note in a small sheet/editor.
 
 Make accidental drawing while transforming the canvas difficult.
