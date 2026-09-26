@@ -6,15 +6,14 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -23,8 +22,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,30 +30,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.core.content.IntentCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import java.io.File
-
-private val Coral = Color(0xFFFF927B)
-private val Ink = Color(0xFF171A1B)
-private val Paper = Color(0xFFF5F0E8)
-private val Muted = Color(0xFFABB1AD)
-private val Palette = listOf(0xFFFF5C5B, 0xFFFFC84A, 0xFF66D9A8, 0xFF57B8FF, 0xFFF7F7F2, 0xFF171A1B)
-private val ColorNames = listOf("Red", "Yellow", "Green", "Blue", "White", "Black")
 
 class MainActivity : ComponentActivity() {
     private val model: EditorModel by viewModels()
     private var incoming by mutableStateOf<Uri?>(null)
+    private var editorFullscreen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,12 +63,30 @@ class MainActivity : ComponentActivity() {
                 Editor(model, incoming, {
                     incoming = null
                     setIntent(Intent(this, MainActivity::class.java))
-                }, ::share)
+                }, ::share, ::setEditorFullscreen)
             }
         }
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); receive(intent) }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applySystemBars()
+    }
+
+    private fun setEditorFullscreen(enabled: Boolean) {
+        editorFullscreen = enabled
+        applySystemBars()
+    }
+
+    private fun applySystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (editorFullscreen) hide(WindowInsetsCompat.Type.systemBars())
+            else show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
 
     private fun receive(intent: Intent) {
         incoming = when (intent.action) {
@@ -102,7 +111,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Editor(model: EditorModel, incoming: Uri?, consumed: () -> Unit, share: (File) -> Unit) {
+private fun Editor(model: EditorModel, incoming: Uri?, consumed: () -> Unit, share: (File) -> Unit, fullscreen: (Boolean) -> Unit) {
     val project = model.project
     var tool by rememberSaveable { mutableStateOf(Tool.Brush) }
     var colorIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -112,6 +121,9 @@ private fun Editor(model: EditorModel, incoming: Uri?, consumed: () -> Unit, sha
     var showNotes by rememberSaveable { mutableStateOf(false) }
     var showExport by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
+    var showTools by rememberSaveable(project?.id) { mutableStateOf(false) }
+    var showMenu by rememberSaveable { mutableStateOf(false) }
+    var gesturing by remember { mutableStateOf(false) }
     var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
     var packetPath by rememberSaveable { mutableStateOf<String?>(null) }
     var noteOpen by rememberSaveable(project?.id) { mutableStateOf(false) }
@@ -121,7 +133,16 @@ private fun Editor(model: EditorModel, incoming: Uri?, consumed: () -> Unit, sha
     var noteText by rememberSaveable { mutableStateOf("") }
     val snackbar = remember { SnackbarHostState() }
 
+    DisposableEffect(project != null) {
+        fullscreen(project != null)
+        onDispose { fullscreen(false) }
+    }
+    BackHandler(enabled = showTools && !showMenu && !showNotes && !showExport && !showHelp && !noteOpen && pendingImport == null) {
+        showTools = false
+    }
+
     fun editNote(point: Point, existing: Note?) {
+        showTools = false
         noteId = existing?.id; noteX = point.x; noteY = point.y
         noteText = existing?.text ?: ""; noteOpen = true
     }
@@ -144,120 +165,52 @@ private fun Editor(model: EditorModel, incoming: Uri?, consumed: () -> Unit, sha
         }
     }
 
-    Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("dauba", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp)
-                    Text("PAINT WHAT YOU MEAN", color = Muted, fontSize = 9.sp, letterSpacing = 1.8.sp, fontFamily = FontFamily.Monospace)
-                }
-                Action(Icons.Outlined.FolderOpen, "Open screenshot", !model.busy) { picker.launch(arrayOf("image/*")) }
-                if (project != null) {
-                    FilledTonalButton(onClick = { showExport = true }, enabled = !model.busy, contentPadding = PaddingValues(horizontal = 16.dp)) {
-                        Text("Export", fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(6.dp)); Icon(Icons.Outlined.IosShare, null, Modifier.size(18.dp))
-                    }
-                } else Action(Icons.Outlined.Info, "About Dauba") { showHelp = true }
+    // The full-window canvas has sibling overlays. Tool visibility never changes its size.
+    Box(Modifier.fillMaxSize().background(Ink)) {
+        if (project == null) {
+            WelcomeScreen(model.busy, { picker.launch(arrayOf("image/*")) }, { showHelp = true })
+        } else {
+            AndroidView(factory = { context -> AnnotationCanvas(context) },
+                modifier = Modifier.fillMaxSize().testTag("annotation-canvas"), update = { canvas ->
+                    canvas.tool = tool
+                    canvas.brushColor = Palette[colorIndex].toInt()
+                    canvas.brushWidth = project.bitmap.width * listOf(.003f, .007f, .015f)[sizeIndex]
+                    canvas.onCommit = model::commit
+                    canvas.onNote = ::editNote
+                    canvas.onGestureStart = { showTools = false; gesturing = true }
+                    canvas.onGestureEnd = { gesturing = false }
+                    canvas.update(project, rotation, fitToken)
+                })
+            if (!gesturing) Box(Modifier.align(Alignment.BottomEnd)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .windowInsetsPadding(WindowInsets.systemGestures.only(WindowInsetsSides.Bottom))
+                .padding(horizontal = 12.dp, vertical = 8.dp)) {
+                if (showTools) QuickTools(tool, colorIndex, sizeIndex, model.canUndo, model.canRedo, !model.busy,
+                    chooseTool = { tool = it }, chooseColor = { colorIndex = it }, chooseSize = { sizeIndex = it },
+                    undo = model::undo, redo = model::redo, fit = { fitToken++ },
+                    menu = { showTools = false; showMenu = true }, close = { showTools = false })
+                else ToolPill(tool, colorIndex, !model.busy) { showTools = true }
             }
+        }
+        if (model.busy) Box(Modifier.fillMaxSize().background(Ink.copy(alpha = .65f)).clickable {}, contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing))
+    }
 
-            if (project == null) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(Modifier.padding(32.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.Start) {
-                        Surface(shape = RoundedCornerShape(22.dp), color = Coral.copy(alpha = .13f)) {
-                            Icon(Icons.Outlined.Draw, null, tint = Coral, modifier = Modifier.padding(22.dp).size(52.dp))
-                        }
-                        Spacer(Modifier.height(32.dp))
-                        Text("Less explaining.\nMore pointing.", fontWeight = FontWeight.Bold, fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-1).sp)
-                        Spacer(Modifier.height(16.dp))
-                        Text("Open a real screenshot. Draw your changes, pin a note, and send the whole picture to your coding agent.", color = Muted, fontSize = 16.sp, lineHeight = 25.sp)
-                        Spacer(Modifier.height(28.dp))
-                        Button(onClick = { picker.launch(arrayOf("image/*")) }, enabled = !model.busy,
-                            modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
-                            Icon(Icons.Outlined.AddPhotoAlternate, null); Spacer(Modifier.width(10.dp)); Text("Open screenshot")
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        Text("Or share an image to Dauba from any app.", color = Muted, fontSize = 12.sp)
-                    }
-                    if (model.busy) CircularProgressIndicator()
-                }
-                Text("ON DEVICE  /  NO ACCOUNT  /  JUST MARKUP", color = Muted,
-                    fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(20.dp))
-            } else {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(project.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = Muted, modifier = Modifier.weight(1f))
-                    Text("${project.bitmap.width} × ${project.bitmap.height}", fontSize = 10.sp, color = Muted, fontFamily = FontFamily.Monospace)
-                }
-                Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))) {
-                    AndroidView(factory = { context -> AnnotationCanvas(context) }, modifier = Modifier.fillMaxSize(), update = { canvas ->
-                        canvas.tool = tool
-                        canvas.brushColor = Palette[colorIndex].toInt()
-                        canvas.brushWidth = project.bitmap.width * listOf(.003f, .007f, .015f)[sizeIndex]
-                        canvas.onCommit = model::commit
-                        canvas.onNote = ::editNote
-                        canvas.update(project, rotation, fitToken)
-                    })
-                    if (model.busy) Box(Modifier.fillMaxSize().background(Ink.copy(alpha = .7f)).clickable {}, contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Action(Icons.AutoMirrored.Outlined.Undo, "Undo", model.canUndo && !model.busy, model::undo)
-                    Action(Icons.AutoMirrored.Outlined.Redo, "Redo", model.canRedo && !model.busy, model::redo)
-                    Action(Icons.Outlined.RotateLeft, "Rotate 90 degrees counterclockwise", !model.busy) { rotation = (rotation + 3) % 4 }
-                    Action(Icons.Outlined.RotateRight, "Rotate 90 degrees clockwise", !model.busy) { rotation = (rotation + 1) % 4 }
-                    Action(Icons.Outlined.FitScreen, "Fit screenshot", !model.busy) { fitToken++ }
-                    TextButton(onClick = { showNotes = true }, enabled = !model.busy) {
-                        Icon(Icons.AutoMirrored.Outlined.Notes, null, Modifier.size(19.dp))
-                        Spacer(Modifier.width(5.dp)); Text("${project.drawing.notes.size} notes", fontSize = 12.sp)
-                    }
-                }
-                HorizontalDivider(color = Color(0xFF323737))
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp).height(58.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    if (tool == Tool.Brush) {
-                        Palette.forEachIndexed { index, color ->
-                            Box(Modifier.size(40.dp).clip(CircleShape).clickable(enabled = !model.busy) { colorIndex = index }
-                                .semantics { contentDescription = "${ColorNames[index]} brush${if (colorIndex == index) ", selected" else ""}" }
-                                .padding(5.dp).border(if (colorIndex == index) 2.dp else 1.dp,
-                                    if (colorIndex == index) Paper else Muted.copy(alpha = .4f), CircleShape).padding(4.dp).background(Color(color), CircleShape))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        listOf(3.dp, 6.dp, 10.dp).forEachIndexed { index, size ->
-                            Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(if (sizeIndex == index) Color(0xFF3B4141) else Color.Transparent)
-                                .clickable(enabled = !model.busy) { sizeIndex = index }.semantics { contentDescription = "${listOf("Fine", "Medium", "Bold")[index]} brush size" },
-                                contentAlignment = Alignment.Center) { Box(Modifier.size(size).background(Paper, CircleShape)) }
-                        }
-                    } else Text(when (tool) {
-                        Tool.Eraser -> "Touch a stroke to erase it. Undo brings it back."
-                        Tool.Note -> "Tap to pin a note. Tap an anchor to edit."
-                        else -> "Drag to move. Pinch to zoom with any tool."
-                    }, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp))
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Tool.entries.forEach { item ->
-                        val selected = tool == item
-                        val icon = when (item) {
-                            Tool.Brush -> Icons.Outlined.Draw
-                            Tool.Eraser -> Icons.Outlined.AutoFixNormal
-                            Tool.Note -> Icons.Outlined.AddComment
-                            Tool.Hand -> Icons.Outlined.PanTool
-                        }
-                        Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if (selected) Coral else Color(0xFF272C2D))
-                            .clickable(enabled = !model.busy) { tool = item }.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(icon, item.name, tint = if (selected) Ink else Paper, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.height(3.dp)); Text(item.name, fontSize = 11.sp, color = if (selected) Ink else Paper, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 12.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(model.saveStatus, color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { showHelp = true }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Outlined.HelpOutline, "Help", Modifier.size(18.dp), tint = Muted)
-                    }
-                }
-            }
+    if (showMenu && project != null) ModalBottomSheet(onDismissRequest = { showMenu = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+            Text("Screenshot", style = MaterialTheme.typography.headlineSmall)
+            Text(project.name, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            Text("${project.bitmap.width} × ${project.bitmap.height} · ${model.saveStatus}", color = Muted, fontSize = 12.sp)
+            Spacer(Modifier.height(14.dp))
+            MenuAction(Icons.Outlined.IosShare, "Export packet", !model.busy) { showMenu = false; showExport = true }
+            MenuAction(Icons.AutoMirrored.Outlined.Notes, "Notes (${project.drawing.notes.size})", !model.busy) { showMenu = false; showNotes = true }
+            MenuAction(Icons.Outlined.FolderOpen, "Open / replace screenshot", !model.busy) { showMenu = false; picker.launch(arrayOf("image/*")) }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = Color(0xFF323737))
+            MenuAction(Icons.Outlined.RotateLeft, "Rotate 90° counterclockwise", !model.busy) { rotation = (rotation + 3) % 4; showMenu = false }
+            MenuAction(Icons.Outlined.RotateRight, "Rotate 90° clockwise", !model.busy) { rotation = (rotation + 1) % 4; showMenu = false }
+            MenuAction(Icons.Outlined.Info, "Help / About Dauba") { showMenu = false; showHelp = true }
         }
     }
 
@@ -316,11 +269,43 @@ private fun Editor(model: EditorModel, incoming: Uri?, consumed: () -> Unit, sha
         dismissButton = { TextButton(onClick = { showExport = false; model.export { file -> packetPath = file.path; saver.launch(file.name) } }) { Text("Save ZIP") } })
 
     if (showHelp) AlertDialog(onDismissRequest = { showHelp = false }, title = { Text("Paint what you mean.") },
-        text = { Text("One finger draws or uses the selected tool. Two fingers move and zoom. Adding a second finger cancels a tentative mark.\n\nThe eraser removes whole strokes. Notes can be edited by tapping their anchors with the Note tool, or from the notes list. Undo covers both.\n\nRotation buttons turn the canvas by 90°. Fit restores the current view. Exports keep the original orientation and resolution.\n\nYour current screenshot and edits save automatically on this device. Export before opening another screenshot.\n\nDauba 0.1.0 · First test build") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text("Tap the tool pill to open controls. Starting a gesture hides them without moving the screenshot or swallowing your first stroke.\n\nOne finger uses the selected tool. Two fingers move and zoom; adding a second finger cancels a tentative mark. The eraser removes whole strokes.\n\nThe ••• menu holds Export, Notes, Open, and 90° rotation. Fit is in the tool tray. Exports keep the original orientation and resolution.\n\nTap an anchor with the Note tool, or open Notes, to edit its text.\n\nYour current screenshot saves automatically. Export before opening another. Swipe from a screen edge to reveal Android's system bars.")
+            Spacer(Modifier.height(16.dp))
+            Text("Dauba ${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}", color = Muted)
+        } },
         confirmButton = { TextButton(onClick = { showHelp = false }) { Text("Got it") } })
 }
 
 @Composable
-private fun Action(icon: ImageVector, label: String, enabled: Boolean = true, click: () -> Unit) {
-    IconButton(onClick = click, enabled = enabled) { Icon(icon, label, Modifier.size(22.dp)) }
+private fun WelcomeScreen(busy: Boolean, open: () -> Unit, help: () -> Unit) {
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("dauba", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp)
+                Text("PAINT WHAT YOU MEAN", color = Muted, fontSize = 9.sp, letterSpacing = 1.8.sp, fontFamily = FontFamily.Monospace)
+            }
+            ChromeAction(Icons.Outlined.FolderOpen, "Open screenshot", !busy, open)
+            ChromeAction(Icons.Outlined.Info, "About Dauba", click = help)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(Modifier.padding(32.dp).verticalScroll(rememberScrollState())) {
+                Surface(shape = RoundedCornerShape(22.dp), color = Coral.copy(alpha = .13f)) {
+                    Icon(Icons.Outlined.Draw, null, tint = Coral, modifier = Modifier.padding(22.dp).size(52.dp))
+                }
+                Spacer(Modifier.height(32.dp))
+                Text("Less explaining.\nMore pointing.", fontWeight = FontWeight.Bold, fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-1).sp)
+                Spacer(Modifier.height(16.dp))
+                Text("Open a real screenshot. Draw your changes, pin a note, and send the whole picture to your coding agent.", color = Muted, fontSize = 16.sp, lineHeight = 25.sp)
+                Spacer(Modifier.height(28.dp))
+                Button(onClick = open, enabled = !busy, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Outlined.AddPhotoAlternate, null); Spacer(Modifier.width(10.dp)); Text("Open screenshot")
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Or share an image to Dauba from any app.", color = Muted, fontSize = 12.sp)
+            }
+        }
+        Text("ON DEVICE  /  NO ACCOUNT  /  JUST MARKUP", color = Muted, fontSize = 9.sp, letterSpacing = 1.sp,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(20.dp))
+    }
 }

@@ -2,18 +2,22 @@
 
 Paint what you mean. A small native Android screenshot annotation app for giving visual UI-change instructions to coding agents.
 
-[Download the first test APK](https://github.com/hanenashi/dauba/releases/tag/v0.1.0).
+[Download the fullscreen test APK](https://github.com/hanenashi/dauba/releases/tag/v0.2.0).
 Android 10 or newer. No account, network permission, or broad storage permission.
 
 ## First test
 
-Download `dauba-0.1.0-test.apk` from the GitHub release on your phone and open it. If Android asks, allow your browser or Files app to install this app. This works away from home; no ADB or Wi-Fi pairing is required.
+Download `dauba-0.2.0-test.apk` from the GitHub release on your phone and open it. If Android asks, allow your browser or Files app to install this app. It updates the earlier preview and preserves your current screenshot and markup. This works away from home; no ADB or Wi-Fi pairing is required.
 
 1. Open a screenshot with the picker, or share an image to **Dauba** from another app.
-2. Draw with one finger. Choose from six colors and three brush sizes.
-3. Use **Note** and tap the image to place A, B, C… anchors. Tap an existing anchor with the Note tool, or use the notes list, to edit/delete its text.
-4. Pan and zoom with two fingers, or pan with the Hand tool. Adding a second finger cancels the tentative draw/erase. The rotation buttons turn the canvas exactly 90° clockwise/counterclockwise; **Fit** resets pan/zoom.
-5. **Export → Share ZIP** sends a packet to another app. **Save ZIP** uses Android's file picker so you can save to Downloads or another document provider.
+2. The editor fills the screen. Tap the small tool pill at the bottom-right to open the tray: Brush, Eraser, Note, Hand, colors, sizes, Undo/Redo, and Fit.
+3. Draw with one finger. Starting a canvas gesture hides the tray without moving the screenshot or discarding the first stroke. The pill also disappears while your finger is down; it returns when the gesture ends, while the tray stays closed.
+4. Use **Note** and tap the image to place A, B, C… anchors. Tap an existing anchor with the Note tool, or use the notes list, to edit/delete its text.
+5. Pan and zoom with two fingers, or pan with the Hand tool. Adding a second finger cancels the tentative draw/erase. **Fit** resets pan/zoom.
+6. The tray's **•••** menu holds Export, Notes, Open/replace, 90° clockwise/counterclockwise rotation, screenshot information, and Help/About.
+7. **Export packet → Share ZIP** sends a packet to another app. **Save ZIP** uses Android's file picker so you can save to Downloads or another document provider.
+
+Android's status/navigation bars hide while editing. Swipe from a screen edge to reveal them temporarily. Back closes the open tool tray. The canvas stays fixed when tools or system bars appear; it never shrinks to make room for them.
 
 Each ZIP contains:
 
@@ -48,9 +52,19 @@ Preview APKs use the builder's persistent Android debug signing key outside the 
 
 Unit/Robolectric tests cover history, erasing, stable letter labels, Markdown, saved project state, ZIP/image content, cancellation of drawing during pinch gestures, and touch coordinates through all four quarter-turns. ImageDecoder import is exercised on an Android emulator because its file-descriptor JNI is not supported by the host test runtime.
 
+Fullscreen instrumented tests verify unchanged canvas geometry/rendering when opening the tray, first-stroke delivery while controls auto-hide, immersive system bars, undo, note editing with the keyboard, and menu/rotation/export access. Run them only on an emulator with disposable app data; they deliberately skip physical devices to protect existing projects:
+
+```sh
+./gradlew assembleDebug assembleDebugAndroidTest
+adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s emulator-5554 install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s emulator-5554 shell am instrument -w -r com.hanenashi.dauba.test/androidx.test.runner.AndroidJUnitRunner
+```
+
 ## Code map
 
 - `MainActivity.kt`: Compose interface, image picker, incoming shares, export actions.
+- `EditorChrome.kt`: temporary tool tray, tool pill, and secondary menu actions.
 - `AnnotationCanvas.kt`: native touch surface, image transform, shared annotation renderer.
 - `Project.kt`: immutable strokes/notes, undo/redo, hit testing, Markdown.
 - `ProjectStore.kt`: private image copy, atomic saved state, lossless PNG/ZIP export.

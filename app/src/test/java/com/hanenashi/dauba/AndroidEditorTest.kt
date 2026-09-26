@@ -116,7 +116,7 @@ class AndroidEditorTest {
         var point: Point? = null
         view.onNote = { p, _ -> point = p }
         // Original top-left quadrant (50,100) maps differently at each rotation.
-        val screenPoints = listOf(Point(108f, 216f), Point(292f, 354f), Point(292f, 584f), Point(108f, 446f))
+        val screenPoints = listOf(Point(100f, 200f), Point(300f, 350f), Point(300f, 600f), Point(100f, 450f))
         for (rotation in 0..3) {
             view.update(project, rotation, 0)
             // Exercise the same renderer path used by AndroidView.
@@ -126,5 +126,23 @@ class AndroidEditorTest {
             assertEquals("rotation $rotation x", 50f, point!!.x, .01f)
             assertEquals("rotation $rotation y", 100f, point!!.y, .01f)
         }
+    }
+
+    @Test fun chromeUpdateDuringGestureKeepsFirstStrokeAndOriginalCoordinates() {
+        val project = fixture()
+        val view = canvas(project)
+        var result: Drawing? = null
+        var ended = false
+        // A recomposition to remove the overlay must not reset the in-flight gesture.
+        view.onGestureStart = { view.update(project, 0, 0) }
+        view.onGestureEnd = { ended = true }
+        view.onCommit = { result = it }
+        touch(view, MotionEvent.ACTION_DOWN, Point(100f, 200f))
+        view.update(project, 0, 0)
+        touch(view, MotionEvent.ACTION_MOVE, Point(200f, 300f))
+        touch(view, MotionEvent.ACTION_UP, Point(200f, 300f))
+        assertEquals(Point(50f, 100f), result!!.strokes.single().points.first())
+        assertEquals(Point(100f, 150f), result!!.strokes.single().points.last())
+        assertTrue(ended)
     }
 }

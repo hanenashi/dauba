@@ -61,6 +61,8 @@ object AnnotationRenderer {
 class AnnotationCanvas(context: Context) : View(context) {
     var onCommit: (Drawing) -> Unit = {}
     var onNote: (Point, Note?) -> Unit = { _, _ -> }
+    var onGestureStart: () -> Unit = {}
+    var onGestureEnd: () -> Unit = {}
     var tool = Tool.Brush
     var brushColor = Color.rgb(255, 92, 91)
     var brushWidth = 7f
@@ -115,8 +117,8 @@ class AnnotationCanvas(context: Context) : View(context) {
     private fun updateMatrix() {
         val b = bitmap ?: return
         val odd = rotation % 2 != 0
-        val fit = min((width - 32f).coerceAtLeast(1f) / (if (odd) b.height else b.width),
-            (height - 32f).coerceAtLeast(1f) / (if (odd) b.width else b.height))
+        val fit = min(width.toFloat().coerceAtLeast(1f) / (if (odd) b.height else b.width),
+            height.toFloat().coerceAtLeast(1f) / (if (odd) b.width else b.height))
         val scale = fit * zoom
         val cos = floatArrayOf(1f, 0f, -1f, 0f)[rotation]
         val sin = floatArrayOf(0f, 1f, 0f, -1f)[rotation]
@@ -173,6 +175,7 @@ class AnnotationCanvas(context: Context) : View(context) {
         updateMatrix()
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                onGestureStart()
                 parent?.requestDisallowInterceptTouchEvent(true)
                 draft.clear(); erased.clear(); transforming = false; moved = false
                 downX = event.x; downY = event.y; lastX = event.x; lastY = event.y
@@ -235,10 +238,12 @@ class AnnotationCanvas(context: Context) : View(context) {
                 }
                 draft.clear(); erased.clear(); active = false
                 parent?.requestDisallowInterceptTouchEvent(false)
+                onGestureEnd()
             }
             MotionEvent.ACTION_CANCEL -> {
                 draft.clear(); erased.clear(); active = false; transforming = false
                 parent?.requestDisallowInterceptTouchEvent(false)
+                onGestureEnd()
             }
         }
         invalidate()
